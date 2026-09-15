@@ -35,6 +35,7 @@ from instagram.selectors import (
     CHECKPOINT_URL_MARKERS,
     LIKES_PATHS,
     LOGGED_OUT_URL_MARKERS,
+    STRUCTURE_PROBES,
     SelectorRegistry,
 )
 
@@ -269,9 +270,53 @@ class Navigator:
                     count = f"error: {exc}"
                 lines.append(f"    {selector.describe():<55} -> {count}")
 
+        lines.extend(self._structure_lines())
+        lines.append("--- end of diagnostic summary ---")
         return "\n".join(lines)
 
-    def _dump_diagnostics(self, label: str) -> None:
+    def _structure_lines(self) -> list[str]:
+        """Element counts describing the page's shape, never its content.
+
+        This is what turns "nothing matched" into an answer: a grid of
+        permalink anchors, a grid of clickable divs wrapping thumbnails and a
+        genuinely empty page have three very different shapes, and the counts
+        alone tell them apart.
+        """
+        report = self.session.structure_report(STRUCTURE_PROBES)
+        if not report:
+            return ["Page structure: (unavailable)"]
+
+        lines = [
+            "Page structure (element counts only, no content):",
+            f"  <main> present: {report.get('main_present')}"
+            f"   elements within it: {report.get('scope_elements')}",
+        ]
+        for label, key in (("Tags", "tags"), ("Roles", "roles")):
+            counts = report.get(key) or {}
+            ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:12]
+            rendered = ", ".join(f"{name}={count}" for name, count in ranked)
+            lines.append(f"  {label}: {rendered or '(none)'}")
+
+        lines.append("  Probe matches (-1 = selector unsupported here):")
+        for selector, count in (report.get("probes") or {}).items():
+            lines.append(f"    {selector:<45} -> {count}")
+        return lines
+
+    def report_diagnostics(self, label: str) -> str:
+        """Explain a page that matched nothing, right where it failed.
+
+        The summary is *always* logged, because telling a user "re-run with a
+        flag" at the moment something breaks wastes the run that already
+        broke — and because this summary is counts-only, so there is nothing
+        in it that needs a user's permission to print. The HTML and the
+        screenshot stay behind ``--debug``: those carry real content.
+        """
+        summary = self._diagnostic_summary(label)
+        log.warning("%s", summary)
+        self._dump_diagnostics(label, summary=summary)
+        return summary
+
+    def _dump_diagnostics(self, label: str, *, summary: str | None = None) -> None:
         """Save the current page's HTML, a screenshot and a summary, if
         --debug is on.
 
@@ -289,7 +334,9 @@ class Navigator:
         self.session.dump_html(base.with_suffix(".html"))
         self.session.screenshot(base.with_suffix(".png"), full_page=True)
 
-        summary = self._diagnostic_summary(label)
+        if summary is None:
+            summary = self._diagnostic_summary(label)
+            log.warning("%s", summary)
         try:
             base.with_suffix(".txt").parent.mkdir(parents=True, exist_ok=True)
             base.with_suffix(".txt").write_text(summary, encoding="utf-8")
@@ -297,7 +344,6 @@ class Navigator:
             log.debug("Could not write diagnostic summary file: %s", exc)
 
         log.warning("Saved diagnostic dump for inspection: %s.html / .png / .txt", base)
-        log.warning("%s", summary)
 
     # ------------------------------------------------------------------
     # The likes surface
@@ -336,17 +382,16 @@ class Navigator:
                 "%s loaded but no liked content or empty state was recognised",
                 safe_url(url),
             )
-            self._dump_diagnostics(path)
+            self.report_diagnostics(path)
 
-        hint = ""
+        hint = (
+            " A diagnostic summary of what each page actually contained was printed "
+            "above — it is counts only, so it is safe to paste into a bug report."
+        )
         if getattr(self.config, "debug", False):
-            hint = (
-                f" A diagnostic HTML/screenshot/summary dump was saved under "
-                f"{self.config.debug_dir} — the .txt summary was also printed above "
-                "and is short enough to paste into a bug report."
-            )
+            hint += f" The page HTML and a screenshot were also saved under {self.config.debug_dir}."
         else:
-            hint = " Re-run with --debug to save the actual page HTML/screenshot/summary for inspection."
+            hint += " Re-run with --debug to also save the page HTML and a screenshot."
         raise UIChangedError(
             "Could not open Instagram's liked-content page. Tried: "
             + ", ".join(base + p for p in paths)

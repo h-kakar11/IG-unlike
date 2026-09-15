@@ -111,6 +111,13 @@ class LikesScanner:
             except Exception as exc:  # noqa: BLE001
                 raise classify(exc) from exc
 
+            if not href:
+                # A tile may be a container rather than the link itself. Its
+                # nested permalink is the same post, so preferring it keeps
+                # one post to one identifier — otherwise the container and
+                # the anchor inside it would each be counted separately.
+                href = self._nested_permalink(locator)
+
             identifier = shortcode_from_url(href or "")
             url = self._absolute(href) if href else None
 
@@ -137,6 +144,16 @@ class LikesScanner:
         if href.startswith("http://") or href.startswith("https://"):
             return href
         return self.config.base_url.rstrip("/") + "/" + href.lstrip("/")
+
+    def _nested_permalink(self, locator: Any) -> str | None:
+        """The first post permalink inside this element, if it has one."""
+        try:
+            anchor = locator.locator('a[href*="/p/"], a[href*="/reel/"], a[href*="/tv/"]').first
+            if anchor.count() == 0:
+                return None
+            return anchor.get_attribute("href")
+        except Exception:  # noqa: BLE001
+            return None
 
     def _fallback_identifier(self, locator: Any) -> str | None:
         """Derive an identifier from the thumbnail when there is no permalink.
@@ -174,6 +191,7 @@ class LikesScanner:
         """
         if not self.navigator.has_liked_content():
             log.info("No liked content is available to scan")
+            self._report_if_not_genuinely_empty()
             return []
 
         def report(count: int) -> None:
@@ -183,7 +201,18 @@ class LikesScanner:
         self.navigator.scroll_until_stable(target=target, on_progress=report)
         items = self.scan_visible()
         log.info("Scan found %d distinct liked item(s)", len(items))
+        if not items:
+            # The page looked like the likes surface but yielded nothing, so
+            # something matched that should not have. Say what is really
+            # there rather than reporting a confident zero.
+            self.navigator.report_diagnostics("likes-page-scanned-zero-items")
         return items
+
+    def _report_if_not_genuinely_empty(self) -> None:
+        """Explain a "nothing here" that is not Instagram's own empty state."""
+        if dom.is_present(self.page, self.selectors, "likes_empty_state"):
+            return
+        self.navigator.report_diagnostics("likes-page-no-content-recognised")
 
     def dry_run_report(self, items: Sequence[LikedItem]) -> dict[str, Any]:
         """Summary for the dry-run screen. Reads nothing beyond ``items``."""

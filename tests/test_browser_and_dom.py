@@ -221,6 +221,15 @@ class _RecordingSession:
     def link_prefix_histogram(self):
         return self.histogram
 
+    def structure_report(self, probes):
+        return {
+            "main_present": True,
+            "scope_elements": 42,
+            "tags": {"div": 30, "img": 7, "a": 5},
+            "roles": {"button": 4, "link": 5},
+            "probes": {selector: 0 for selector in probes},
+        }
+
 
 def test_diagnostics_are_not_dumped_unless_debug_is_enabled(tmp_path):
     """The default: a mismatch fails quietly, with no personal data written."""
@@ -289,6 +298,36 @@ def test_summary_degrades_gracefully_without_a_page(tmp_path):
     content = list(debug_dir.glob("*.txt"))[0].read_text(encoding="utf-8")
     assert "unavailable" in content
     assert len(session.html_calls) == 1 and len(session.screenshot_calls) == 1
+
+
+def test_the_safe_summary_is_reported_even_without_debug(tmp_path, caplog):
+    """A user who hits a mismatch must not be told to run the whole thing again.
+
+    The counts-only summary carries nothing personal, so it is always logged;
+    only the HTML and screenshot wait for --debug.
+    """
+    session = _RecordingSession()
+    config = fast_config(tmp_path, debug=False, debug_dir=tmp_path / "dbg")
+
+    with caplog.at_level("WARNING", logger="unliker.navigation"):
+        summary = Navigator(session, config).report_diagnostics("likes")
+
+    assert "Page structure" in summary
+    assert summary in caplog.text, "the summary should reach the console"
+    assert session.html_calls == [] and session.screenshot_calls == []
+    assert not (tmp_path / "dbg").exists(), "no files without --debug"
+
+
+def test_the_summary_describes_page_shape_without_content(tmp_path):
+    session = _RecordingSession()
+    config = fast_config(tmp_path, debug=False)
+
+    summary = Navigator(session, config).report_diagnostics("likes")
+
+    assert "<main> present: True" in summary
+    assert "div=30" in summary and "img=7" in summary, "tag histogram"
+    assert "Probe matches" in summary
+    assert 'main div[role="button"]:has(img)' in summary
 
 
 def test_summary_omits_link_prefixes_when_none_are_found(tmp_path):

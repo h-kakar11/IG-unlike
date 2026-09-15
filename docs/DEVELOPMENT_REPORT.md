@@ -192,6 +192,23 @@ screenshot for every URL tried, so the next fix can be based on what
 Instagram really sent rather than assumption. It is opt-in and local-only —
 see the README's "Diagnosing a mismatch" section.
 
+A second live run confirmed the diagnosis was still out of reach: all three
+known paths loaded while logged in, and none matched. It also exposed a
+design fault in the tool's own response — it *told the user to run it again*
+with `--debug`, spending a whole run to produce nothing. The counts-only
+part of the diagnostic is now emitted unconditionally, at the moment of
+failure, and the flag controls only the files that carry real content. A
+structural probe sweep was added alongside it: match counts for ~30 candidate
+shapes plus tag and role histograms within `<main>`, which distinguish a grid
+of permalink anchors from a grid of clickable containers from a genuinely
+empty page — without reading one character of the user's content. Two
+container-shaped candidates (`main a[role="link"]:has(img)`,
+`main div[role="button"]:has(img)`) were added to `likes_grid_item` on the
+theory that Your Activity, being a multi-select surface, may not use plain
+permalink anchors; the scanner now resolves a container to its nested
+permalink so a tile and the anchor inside it can never be counted as two
+different posts.
+
 The HTML/screenshot dump turned out to have a practical problem of its own:
 a real Instagram page's HTML is large and can carry personal content
 (captions, usernames), which makes it awkward to get from wherever the tool
