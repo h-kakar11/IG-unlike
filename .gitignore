@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local runtime data — never commit browser profiles, databases or logs.
+data/*
+!data/.gitkeep
+logs/
+*.db
+*.db-wal
+*.db-shm
+
+# Local configuration (may contain machine-specific paths)
+.env
+config.json
+selectors.json
