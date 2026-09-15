@@ -214,8 +214,8 @@ class BrowserSession:
         """Capture a diagnostic screenshot. Never fails the caller.
 
         Screenshots of a logged-in Instagram page contain personal content, so
-        they are only taken on explicit request (``--debug-screenshots``) and
-        are written next to the log, inside the gitignored data directory.
+        they are only taken on explicit request (``--debug``) and are written
+        inside the gitignored data directory, never uploaded anywhere.
         """
         path = Path(path)
         try:
@@ -225,6 +225,26 @@ class BrowserSession:
             return path
         except Exception as exc:  # noqa: BLE001
             log.debug("Screenshot failed: %s", exc)
+            return None
+
+    def dump_html(self, path: str | Path) -> Path | None:
+        """Save the current page's rendered HTML. Never fails the caller.
+
+        This is what makes a "selectors don't match" failure diagnosable
+        without guessing: the actual markup Instagram served, saved locally
+        and only on explicit request (``--debug``). It contains no image
+        bytes, but page text can include personal content (captions,
+        usernames), so it goes in the gitignored data directory and nowhere
+        else — this tool never uploads anything on its own.
+        """
+        path = Path(path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self.page.content(), encoding="utf-8")
+            log.info("Saved diagnostic HTML to %s", path)
+            return path
+        except Exception as exc:  # noqa: BLE001
+            log.debug("HTML dump failed: %s", exc)
             return None
 
 

@@ -279,6 +279,22 @@ python main.py scan                # picks the overrides up automatically
 If nothing matches, the tool stops with a message naming every strategy it
 tried, rather than clicking on a page it cannot read.
 
+### Diagnosing a mismatch: `--debug`
+
+When a page doesn't match any known selector, add `--debug` to see exactly
+what Instagram rendered instead of guessing:
+
+```bash
+python main.py scan --debug
+```
+
+If nothing matches, this saves the real page HTML and a screenshot under
+`data/debug/` — one pair per URL the tool tried. Open the `.html` file (or the
+`.png`) and compare it against the candidates in `instagram/selectors.py` or
+`selectors.json` to see which one needs fixing. These dumps are local only,
+gitignored, and never uploaded anywhere; `--debug` is off by default because a
+dump of your Likes page contains personal content (captions, usernames).
+
 ---
 
 ## Documentation

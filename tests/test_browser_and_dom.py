@@ -6,11 +6,14 @@ failures are explained, and the order in which selector candidates are tried.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from core.errors import BrowserCrashedError, ElementNotFoundError, FatalError
 from instagram import dom
 from instagram.browser import BASE_ARGS, BrowserSession, clear_profile
+from instagram.navigation import Navigator
 from instagram.selectors import Selector, SelectorRegistry
 from tests.fakes import fast_config
 
@@ -185,3 +188,61 @@ def test_unsupported_kinds_are_rejected():
 
     with pytest.raises(ValueError, match="Unsupported selector kind"):
         dom.to_locator(FakeScope({}), bogus)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic dumps (--debug)
+# ---------------------------------------------------------------------------
+class _RecordingSession:
+    """Stands in for BrowserSession: records dump/screenshot calls, no Playwright."""
+
+    def __init__(self):
+        self.html_calls: list[Path] = []
+        self.screenshot_calls: list[Path] = []
+
+    def dump_html(self, path):
+        self.html_calls.append(Path(path))
+        return Path(path)
+
+    def screenshot(self, path, *, full_page: bool = False):
+        self.screenshot_calls.append(Path(path))
+        return Path(path)
+
+
+def test_diagnostics_are_not_dumped_unless_debug_is_enabled(tmp_path):
+    """The default: a mismatch fails quietly, with no personal data written."""
+    session = _RecordingSession()
+    config = fast_config(tmp_path, debug=False)
+
+    Navigator(session, config)._dump_diagnostics("your_activity/interactions/likes/")
+
+    assert session.html_calls == []
+    assert session.screenshot_calls == []
+
+
+def test_debug_dumps_html_and_a_screenshot_for_the_failed_page(tmp_path):
+    session = _RecordingSession()
+    debug_dir = tmp_path / "dbg"
+    config = fast_config(tmp_path, debug=True, debug_dir=debug_dir)
+
+    Navigator(session, config)._dump_diagnostics("your_activity/interactions/likes/")
+
+    assert len(session.html_calls) == 1
+    assert len(session.screenshot_calls) == 1
+    html_path, png_path = session.html_calls[0], session.screenshot_calls[0]
+    assert html_path.suffix == ".html"
+    assert png_path.suffix == ".png"
+    assert html_path.parent == debug_dir
+    assert "likes" in html_path.name
+
+
+def test_debug_dump_filenames_are_filesystem_safe():
+    """Labels come from URL paths, which contain '/'; that must never break a save."""
+    session = _RecordingSession()
+    config = fast_config(Path("/tmp"), debug=True, debug_dir=Path("/tmp/dbg"))
+
+    Navigator(session, config)._dump_diagnostics("/your_activity/interactions/likes/")
+
+    name = session.html_calls[0].name
+    assert "/" not in name
+    assert "\\" not in name

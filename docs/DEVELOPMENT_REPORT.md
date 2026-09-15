@@ -167,12 +167,28 @@ first run.
    grid selectors are right.
 2. `python main.py run --live --limit 1` — one item, checked by hand.
 3. `python main.py status` — confirm it recorded `completed`, not `failed`.
-4. If step 1 fails: `python main.py dump-selectors`, open Instagram's Likes
-   page in the browser's devtools, and fix the group that no longer matches.
-   `docs/CONFIGURATION.md` documents the format.
+4. If step 1 fails: `python main.py scan --debug`. This saves the actual page
+   HTML and a screenshot to `data/debug/` for each URL tried, so the fix comes
+   from what Instagram really rendered rather than a guess. Compare it against
+   `instagram/selectors.py`, then `python main.py dump-selectors` and fix the
+   group that no longer matches. `docs/CONFIGURATION.md` documents the format.
 
 The error messages are built for this: when nothing matches, the exception
 names every strategy that was tried and points at `selectors.json`.
+
+### Update: the first live run hit exactly this gap
+
+On the first real run against a live account, `navigate_to_likes` raised
+`UIChangedError` — the page loaded (no login redirect, no checkpoint) but
+nothing on it matched `likes_grid_item` or `likes_empty_state`. This is the
+one thing this report always flagged as unverified, now confirmed to matter
+in practice. Rather than guess at a fix blind, a `--debug` mode was added
+(`python main.py scan --debug`) that saves the actual rendered HTML and a
+screenshot for every URL tried, so the next fix can be based on what
+Instagram really sent rather than assumption. It is opt-in and local-only —
+see the README's "Diagnosing a mismatch" section. The actual selector fix,
+once the dump is inspected, belongs in `selectors.json` or
+`instagram/selectors.py`, not in this report.
 
 ---
 

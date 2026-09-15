@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from core.errors import AuthenticationRequiredError, CheckpointError
+from core.errors import AuthenticationRequiredError, CheckpointError, UIChangedError
 from instagram.browser import BrowserSession
 from instagram.likes import LikesScanner
 from instagram.navigation import AuthState, Navigator
+from instagram.selectors import SelectorRegistry
 from tests.mock_instagram import MockInstagram
 
 pytestmark = pytest.mark.integration
@@ -183,3 +184,63 @@ def test_scanning_never_modifies_anything(session_for, mock_instagram):
 
     assert mock_instagram.liked == before
     assert mock_instagram.state.unlike_calls == 0
+
+
+def test_debug_dumps_real_page_html_when_selectors_dont_match(make_config, mock_instagram):
+    """The real-world failure mode this exists for: a page loads, nothing on
+    it matches a known selector. --debug should leave behind exactly what
+    Instagram actually rendered, not just a "not found" message.
+    """
+    config = make_config(mock_instagram.base_url, debug=True)  # debug_dir is tmp-isolated by the fixture
+    broken = SelectorRegistry()
+    broken.apply_overrides(
+        {
+            "likes_grid_item": {"replace": [{"kind": "css", "value": "a.nonexistent-xyz"}]},
+            "likes_empty_state": {"replace": [{"kind": "css", "value": "div.nonexistent-xyz"}]},
+        }
+    )
+    session = BrowserSession(config).start()
+    try:
+        navigator = Navigator(session, config, broken)
+        navigator.ensure_authenticated(prompt=lambda _: None)
+
+        with pytest.raises(UIChangedError) as excinfo:
+            navigator.navigate_to_likes()
+
+        assert str(config.debug_dir) in str(excinfo.value)
+    finally:
+        session.stop()
+
+    html_dumps = list(config.debug_dir.glob("*.html"))
+    screenshots = list(config.debug_dir.glob("*.png"))
+    assert html_dumps, "a diagnostic HTML dump should have been saved"
+    assert screenshots, "a diagnostic screenshot should have been saved"
+
+    # It's the real page, not a placeholder: the mock's own markup is in it.
+    content = html_dumps[0].read_text(encoding="utf-8")
+    assert "Likes" in content or "instagram" in content.lower()
+
+
+def test_no_dump_is_left_behind_without_debug(make_config, mock_instagram):
+    """The opt-in default: a failure is diagnosable only when asked for."""
+    config = make_config(mock_instagram.base_url, debug=False)
+    broken = SelectorRegistry()
+    broken.apply_overrides(
+        {
+            "likes_grid_item": {"replace": [{"kind": "css", "value": "a.nonexistent-xyz"}]},
+            "likes_empty_state": {"replace": [{"kind": "css", "value": "div.nonexistent-xyz"}]},
+        }
+    )
+    session = BrowserSession(config).start()
+    try:
+        navigator = Navigator(session, config, broken)
+        navigator.ensure_authenticated(prompt=lambda _: None)
+
+        with pytest.raises(UIChangedError) as excinfo:
+            navigator.navigate_to_likes()
+
+        assert "--debug" in str(excinfo.value)
+    finally:
+        session.stop()
+
+    assert not config.debug_dir.exists() or not list(config.debug_dir.glob("*"))

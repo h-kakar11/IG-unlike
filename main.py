@@ -71,6 +71,17 @@ def _common_options() -> argparse.ArgumentParser:
         help="run the browser without a window (you cannot log in this way)",
     )
     common.add_argument(
+        "--debug",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "when a page doesn't match any known selector, save its HTML and "
+            "a screenshot under data/debug/ for inspection (local only, "
+            "never uploaded; off by default because dumps contain personal "
+            "content)"
+        ),
+    )
+    common.add_argument(
         "--batch-size", type=int, metavar="N", default=argparse.SUPPRESS,
         help="items per batch",
     )
@@ -176,6 +187,7 @@ def config_overrides(args: argparse.Namespace) -> dict[str, object]:
         "log": "log_path",
         "log_level": "log_level",
         "headless": "headless",
+        "debug": "debug",
         "batch_size": "batch_size",
         "min_delay": "min_delay",
         "max_delay": "max_delay",

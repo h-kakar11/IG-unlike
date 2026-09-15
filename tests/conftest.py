@@ -73,6 +73,9 @@ def make_config(tmp_path, chromium_path):
             "browser_profile_dir": tmp_path / "profile",
             "db_path": tmp_path / "progress.db",
             "log_path": tmp_path / "logs" / "test.log",
+            # Isolated so a --debug test can never write into the real repo's
+            # data/debug/ — every path this fixture builds stays under tmp_path.
+            "debug_dir": tmp_path / "debug",
             "browser_executable_path": chromium_path,
             "headless": True,
             "base_url": base_url,
