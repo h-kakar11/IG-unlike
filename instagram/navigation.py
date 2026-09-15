@@ -15,7 +15,9 @@ Nothing here modifies anything. Navigation is read-only by construction.
 from __future__ import annotations
 
 import enum
+import re
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from core.errors import (
@@ -221,6 +223,24 @@ class Navigator:
             self.settle(timeout=2.0)
         return dismissed
 
+    def _dump_diagnostics(self, label: str) -> None:
+        """Save the current page's HTML and a screenshot, if --debug is on.
+
+        This is the difference between "nothing matched, guess why" and
+        "here is exactly what Instagram rendered": a page that fails every
+        known selector is otherwise undiagnosable without this. Opt-in and
+        local-only — see :meth:`BrowserSession.dump_html`.
+        """
+        if not getattr(self.config, "debug", False):
+            return
+        debug_dir = Path(getattr(self.config, "debug_dir", None) or "data/debug")
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", label).strip("-") or "page"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        base = debug_dir / f"{stamp}-{slug}"
+        self.session.dump_html(base.with_suffix(".html"))
+        self.session.screenshot(base.with_suffix(".png"), full_page=True)
+        log.warning("Saved diagnostic dump for inspection: %s.html / .png", base)
+
     # ------------------------------------------------------------------
     # The likes surface
     # ------------------------------------------------------------------
@@ -258,12 +278,19 @@ class Navigator:
                 "%s loaded but no liked content or empty state was recognised",
                 safe_url(url),
             )
+            self._dump_diagnostics(path)
 
+        hint = ""
+        if getattr(self.config, "debug", False):
+            hint = f" A diagnostic HTML/screenshot dump was saved under {self.config.debug_dir}."
+        else:
+            hint = " Re-run with --debug to save the actual page HTML/screenshot for inspection."
         raise UIChangedError(
             "Could not open Instagram's liked-content page. Tried: "
             + ", ".join(base + p for p in paths)
             + ". Instagram may have moved or renamed this surface — check "
             "likes_path in your config and the selectors in selectors.json."
+            + hint
             + (f" Last error: {last_error}" if last_error else "")
         )
 

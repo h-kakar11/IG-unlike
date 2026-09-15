@@ -187,6 +187,7 @@ def test_ensure_directories_creates_what_is_needed(tmp_path):
             "browser_profile_dir": tmp_path / "p",
             "db_path": tmp_path / "db" / "x.db",
             "log_path": tmp_path / "logs" / "x.log",
+            "debug_dir": tmp_path / "debug",
         },
     )
     config.ensure_directories()
@@ -194,3 +195,17 @@ def test_ensure_directories_creates_what_is_needed(tmp_path):
     assert (tmp_path / "p").is_dir()
     assert (tmp_path / "db").is_dir()
     assert (tmp_path / "logs").is_dir()
+    assert (tmp_path / "debug").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# --debug diagnostics
+# ---------------------------------------------------------------------------
+def test_debug_defaults_to_off():
+    """Dumps contain personal content, so opt-in, never a surprise default."""
+    assert Config.load(env={}).debug is False
+
+
+def test_debug_is_settable_via_env_and_override():
+    assert Config.load(env={"IGU_DEBUG": "true"}).debug is True
+    assert Config.load(env={}, overrides={"debug": True}).debug is True

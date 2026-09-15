@@ -130,6 +130,12 @@ class Config:
     #: Optional JSON file of selector overrides, so a UI change can be fixed
     #: without editing code.
     selectors_file: Path = PROJECT_ROOT / "selectors.json"
+    #: When true, a page whose content doesn't match any known selector is
+    #: dumped (HTML + screenshot) to debug_dir instead of just failing blind.
+    #: Off by default: these dumps contain personal content, so they are
+    #: opt-in and local-only — never uploaded anywhere by this tool.
+    debug: bool = False
+    debug_dir: Path = PROJECT_ROOT / "data" / "debug"
 
     # ---- Safety --------------------------------------------------------
     #: THE important default. Nothing destructive happens until this is
@@ -289,6 +295,7 @@ class Config:
             self.browser_profile_dir,
             self.db_path.parent,
             self.log_path.parent,
+            self.debug_dir,
         ):
             Path(path).mkdir(parents=True, exist_ok=True)
 
