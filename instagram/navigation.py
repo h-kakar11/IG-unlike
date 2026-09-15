@@ -223,8 +223,57 @@ class Navigator:
             self.settle(timeout=2.0)
         return dismissed
 
+    #: Groups worth reporting match counts for when the likes surface fails
+    #: to resolve. Kept short and targeted rather than "all 20 groups" so the
+    #: summary stays small enough to paste into a bug report.
+    _DIAGNOSTIC_GROUPS = (
+        "likes_container",
+        "likes_grid_item",
+        "likes_empty_state",
+        "loading_indicator",
+        "logged_in_indicator",
+    )
+
+    def _diagnostic_summary(self, label: str) -> str:
+        """A short, safe-to-paste report of what the page actually contains.
+
+        Complements the HTML/screenshot dump rather than replacing it: those
+        are the ground truth but are large and can carry personal content
+        (captions, usernames), which makes them awkward to paste into a bug
+        report or chat message. This contains only route names and match
+        counts — never hrefs, text or usernames — so it is short and safe to
+        share, and is logged at warning level so it lands directly in the
+        console instead of only in a file.
+        """
+        lines = [f"--- Diagnostic summary: {label} ---", f"URL: {safe_url(self.session.current_url())}"]
+        try:
+            lines.append(f"Title: {self.page.title()!r}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"Title: (unavailable: {exc})")
+
+        lines.append("Link prefixes on this page (route only, no post/user data):")
+        histogram = self.session.link_prefix_histogram()
+        if histogram:
+            for prefix, count in histogram:
+                lines.append(f"  {prefix:<20} {count}")
+        else:
+            lines.append("  (none found, or could not be read)")
+
+        lines.append("Selector group match counts (0 means every candidate failed):")
+        for group in self._DIAGNOSTIC_GROUPS:
+            lines.append(f"  {group}:")
+            for selector in self.selectors.get(group):
+                try:
+                    count: object = dom.to_locator(self.page, selector).count()
+                except Exception as exc:  # noqa: BLE001
+                    count = f"error: {exc}"
+                lines.append(f"    {selector.describe():<55} -> {count}")
+
+        return "\n".join(lines)
+
     def _dump_diagnostics(self, label: str) -> None:
-        """Save the current page's HTML and a screenshot, if --debug is on.
+        """Save the current page's HTML, a screenshot and a summary, if
+        --debug is on.
 
         This is the difference between "nothing matched, guess why" and
         "here is exactly what Instagram rendered": a page that fails every
@@ -239,7 +288,16 @@ class Navigator:
         base = debug_dir / f"{stamp}-{slug}"
         self.session.dump_html(base.with_suffix(".html"))
         self.session.screenshot(base.with_suffix(".png"), full_page=True)
-        log.warning("Saved diagnostic dump for inspection: %s.html / .png", base)
+
+        summary = self._diagnostic_summary(label)
+        try:
+            base.with_suffix(".txt").parent.mkdir(parents=True, exist_ok=True)
+            base.with_suffix(".txt").write_text(summary, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Could not write diagnostic summary file: %s", exc)
+
+        log.warning("Saved diagnostic dump for inspection: %s.html / .png / .txt", base)
+        log.warning("%s", summary)
 
     # ------------------------------------------------------------------
     # The likes surface
@@ -282,9 +340,13 @@ class Navigator:
 
         hint = ""
         if getattr(self.config, "debug", False):
-            hint = f" A diagnostic HTML/screenshot dump was saved under {self.config.debug_dir}."
+            hint = (
+                f" A diagnostic HTML/screenshot/summary dump was saved under "
+                f"{self.config.debug_dir} — the .txt summary was also printed above "
+                "and is short enough to paste into a bug report."
+            )
         else:
-            hint = " Re-run with --debug to save the actual page HTML/screenshot for inspection."
+            hint = " Re-run with --debug to save the actual page HTML/screenshot/summary for inspection."
         raise UIChangedError(
             "Could not open Instagram's liked-content page. Tried: "
             + ", ".join(base + p for p in paths)

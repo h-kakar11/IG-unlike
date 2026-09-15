@@ -194,11 +194,18 @@ def test_unsupported_kinds_are_rejected():
 # Diagnostic dumps (--debug)
 # ---------------------------------------------------------------------------
 class _RecordingSession:
-    """Stands in for BrowserSession: records dump/screenshot calls, no Playwright."""
+    """Stands in for BrowserSession: records dump/screenshot calls, no Playwright.
 
-    def __init__(self):
+    Deliberately has no ``.page`` — the summary's title and selector-count
+    sections must degrade gracefully rather than blow up when page access
+    fails, which is exactly the situation a half-crashed browser produces.
+    """
+
+    def __init__(self, url: str = "https://instagram.test/your_activity/interactions/likes/"):
         self.html_calls: list[Path] = []
         self.screenshot_calls: list[Path] = []
+        self._url = url
+        self.histogram: list[tuple[str, int]] = [("/p/", 3), ("/explore/", 1)]
 
     def dump_html(self, path):
         self.html_calls.append(Path(path))
@@ -207,6 +214,12 @@ class _RecordingSession:
     def screenshot(self, path, *, full_page: bool = False):
         self.screenshot_calls.append(Path(path))
         return Path(path)
+
+    def current_url(self) -> str:
+        return self._url
+
+    def link_prefix_histogram(self):
+        return self.histogram
 
 
 def test_diagnostics_are_not_dumped_unless_debug_is_enabled(tmp_path):
@@ -246,3 +259,45 @@ def test_debug_dump_filenames_are_filesystem_safe():
     name = session.html_calls[0].name
     assert "/" not in name
     assert "\\" not in name
+
+
+def test_debug_writes_a_short_text_summary_alongside_the_dumps(tmp_path):
+    """The .txt summary is what makes a dump shareable without opening a file."""
+    session = _RecordingSession()
+    debug_dir = tmp_path / "dbg"
+    config = fast_config(tmp_path, debug=True, debug_dir=debug_dir)
+
+    Navigator(session, config)._dump_diagnostics("your_activity/interactions/likes/")
+
+    txt_files = list(debug_dir.glob("*.txt"))
+    assert len(txt_files) == 1
+    content = txt_files[0].read_text(encoding="utf-8")
+    assert "URL: https://instagram.test/your_activity/interactions/likes/" in content
+    assert "/p/" in content and "3" in content, "the link-prefix histogram should be included"
+    assert "likes_grid_item" in content, "selector group match counts should be included"
+
+
+def test_summary_degrades_gracefully_without_a_page(tmp_path):
+    """A half-crashed browser (page gone, session still around) must not stop the dump."""
+    session = _RecordingSession()
+    debug_dir = tmp_path / "dbg"
+    config = fast_config(tmp_path, debug=True, debug_dir=debug_dir)
+
+    # Must not raise, even though _RecordingSession has no .page:
+    Navigator(session, config)._dump_diagnostics("your_activity/interactions/likes/")
+
+    content = list(debug_dir.glob("*.txt"))[0].read_text(encoding="utf-8")
+    assert "unavailable" in content
+    assert len(session.html_calls) == 1 and len(session.screenshot_calls) == 1
+
+
+def test_summary_omits_link_prefixes_when_none_are_found(tmp_path):
+    session = _RecordingSession()
+    session.histogram = []
+    debug_dir = tmp_path / "dbg"
+    config = fast_config(tmp_path, debug=True, debug_dir=debug_dir)
+
+    Navigator(session, config)._dump_diagnostics("your_activity/interactions/likes/")
+
+    content = list(debug_dir.glob("*.txt"))[0].read_text(encoding="utf-8")
+    assert "none found, or could not be read" in content

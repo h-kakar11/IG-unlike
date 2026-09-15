@@ -213,12 +213,24 @@ def test_debug_dumps_real_page_html_when_selectors_dont_match(make_config, mock_
 
     html_dumps = list(config.debug_dir.glob("*.html"))
     screenshots = list(config.debug_dir.glob("*.png"))
+    summaries = list(config.debug_dir.glob("*.txt"))
     assert html_dumps, "a diagnostic HTML dump should have been saved"
     assert screenshots, "a diagnostic screenshot should have been saved"
+    assert summaries, "a short text summary should have been saved"
 
     # It's the real page, not a placeholder: the mock's own markup is in it.
     content = html_dumps[0].read_text(encoding="utf-8")
     assert "Likes" in content or "instagram" in content.lower()
+
+    # The summary reflects the real DOM even though the registry is broken:
+    # the mock still renders genuine post permalinks, so the safe route-name
+    # histogram should see them even though likes_grid_item cannot.
+    summary = summaries[0].read_text(encoding="utf-8")
+    assert "/p/" in summary, "the link-prefix histogram should have found post permalinks"
+    assert "likes_grid_item" in summary
+    assert "likes_empty_state" in summary
+    # Never the raw identifier itself — only the aggregated route prefix.
+    assert "MOCK0000" not in summary, "the summary must never leak a specific post identifier"
 
 
 def test_no_dump_is_left_behind_without_debug(make_config, mock_instagram):

@@ -82,7 +82,7 @@ about 6 hours per 5,000 likes. That is the intended trade-off.
 | `log_max_bytes` | `5000000` | Rotation threshold. |
 | `log_backup_count` | `5` | Rotated files kept. |
 | `selectors_file` | `selectors.json` | Optional selector overrides. |
-| `debug` | `false` | On a selector mismatch, dump the page's HTML and a screenshot to `debug_dir` instead of just failing. Off by default — dumps contain personal content. See `--debug` in the README. |
+| `debug` | `false` | On a selector mismatch, dump the page's HTML, a screenshot and a short match-count summary to `debug_dir` instead of just failing. The summary is also printed to the console. Off by default — the HTML/screenshot contain personal content. See `--debug` in the README. |
 | `debug_dir` | `data/debug` | Where `--debug` dumps are written. |
 
 ### Safety and behaviour

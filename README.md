@@ -288,12 +288,20 @@ what Instagram rendered instead of guessing:
 python main.py scan --debug
 ```
 
-If nothing matches, this saves the real page HTML and a screenshot under
-`data/debug/` — one pair per URL the tool tried. Open the `.html` file (or the
-`.png`) and compare it against the candidates in `instagram/selectors.py` or
-`selectors.json` to see which one needs fixing. These dumps are local only,
-gitignored, and never uploaded anywhere; `--debug` is off by default because a
-dump of your Likes page contains personal content (captions, usernames).
+If nothing matches, this saves the real page HTML, a screenshot and a short
+text summary under `data/debug/` — one set per URL the tool tried. The
+summary is also printed straight to your terminal, since the HTML and
+screenshot are large and can contain personal content (captions, usernames),
+which makes them awkward to paste anywhere. It has no such content — only the
+resolved URL, the page title, a count of on-page links grouped by route
+(`/p/` -> 12, never which posts or whose account) and, for the selector
+groups the Likes page depends on, how many elements each candidate matched
+right now. That is usually enough on its own to see which candidate needs
+fixing; open the `.html` or `.png` file for the full picture if it isn't.
+Compare either against the candidates in `instagram/selectors.py` or
+`selectors.json`. These dumps are local only, gitignored, and never uploaded
+anywhere; `--debug` is off by default because the HTML/screenshot dumps
+contain personal content.
 
 ---
 
