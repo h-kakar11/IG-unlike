@@ -227,6 +227,36 @@ class BrowserSession:
             log.debug("Screenshot failed: %s", exc)
             return None
 
+    def link_prefix_histogram(self, *, limit: int = 15) -> list[tuple[str, int]]:
+        """Count on-page links by their first path segment, e.g. ``/p/`` -> 12.
+
+        Route names are shared by every Instagram account and carry no
+        personal content, unlike the full hrefs they come from (post codes,
+        usernames). This is what makes a diagnostic summary safe to paste
+        into a bug report: it shows what *kinds* of links a page has, never
+        which ones. Never fails the caller — an empty list means "could not
+        be read", same as a screenshot that could not be taken.
+        """
+        try:
+            counts = self.page.evaluate(
+                """() => {
+                    const counts = {};
+                    for (const a of document.querySelectorAll('a[href]')) {
+                        let path = a.getAttribute('href') || '';
+                        try { path = new URL(path, location.href).pathname; } catch (e) {}
+                        const segment = path.split('/').filter(Boolean)[0] || '';
+                        const key = '/' + segment + (segment ? '/' : '');
+                        counts[key] = (counts[key] || 0) + 1;
+                    }
+                    return counts;
+                }"""
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Link prefix histogram failed: %s", exc)
+            return []
+        pairs = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+        return pairs[:limit]
+
     def dump_html(self, path: str | Path) -> Path | None:
         """Save the current page's rendered HTML. Never fails the caller.
 

@@ -35,7 +35,7 @@ with a procedure for checking each one against the real site.
 | 9 Safeguards | Done | `cli/prompts.py` — dry-run default, typed `yes` |
 | 10 Error handling | Done | `core/errors.py` — 18 classes, each classified for retry |
 | 11 Logging | Done | `core/logging_setup.py` — rotating file log, mandatory redaction |
-| 12 Testing | Done | 284 tests; mock Instagram site for integration |
+| 12 Testing | Done | 294 tests; mock Instagram site for integration |
 | 13 Configuration | Done | `config.py` — four sources, validated, credential-rejecting |
 | 14 Recovery | Done | Session-aware recovery of abandoned claims |
 | 15 Statistics | Done | `core/progress.py` — observed throughput, ETA |
@@ -48,12 +48,12 @@ infrastructure. 20 selector groups covering 85 candidate strategies.
 ## What was tested, and how
 
 ```
-284 tests:  245 logic-only (no browser)  +  39 browser-driven
+294 tests:  253 logic-only (no browser)  +  41 browser-driven
 ```
 
 | File | Tests | Covers |
 |---|---|---|
-| `test_config.py` | 35 | Precedence, coercion, validation, credential rejection |
+| `test_config.py` | 37 | Precedence, coercion, validation, credential rejection |
 | `test_safeguards.py` | 32 | Confirmation prompts, resume prompt, display |
 | `test_worker.py` | 31 | Batching, retries, state transitions, pause/resume/stop |
 | `test_database.py` | 27 | Claiming, outcomes, retry budgets, crash recovery |
@@ -61,9 +61,9 @@ infrastructure. 20 selector groups covering 85 candidate strategies.
 | `test_errors.py` | 24 | Classification of Playwright and unknown errors |
 | `test_rate_controller.py` | 21 | Delays, backoff, caps, jitter, circuit breakers |
 | `test_progress.py` | 19 | Counters, rolling window, ETA, formatting |
+| `test_browser_and_dom.py` | 19 | Launch diagnosis, candidate resolution, `--debug` summary |
 | `test_logging.py` | 18 | Redaction, rotation, exception scrubbing |
-| `test_browser_and_dom.py` | 13 | Launch diagnosis, candidate resolution |
-| `test_integration_scan.py` | 14 | **Browser**: login detection, navigation, scanning |
+| `test_integration_scan.py` | 16 | **Browser**: login detection, navigation, scanning |
 | `test_integration_unlike.py` | 14 | **Browser**: unliking, verification, recovery |
 | `test_integration_cli.py` | 11 | **Browser**: the CLI end to end |
 
@@ -168,8 +168,12 @@ first run.
 2. `python main.py run --live --limit 1` — one item, checked by hand.
 3. `python main.py status` — confirm it recorded `completed`, not `failed`.
 4. If step 1 fails: `python main.py scan --debug`. This saves the actual page
-   HTML and a screenshot to `data/debug/` for each URL tried, so the fix comes
-   from what Instagram really rendered rather than a guess. Compare it against
+   HTML, a screenshot and a short match-count summary to `data/debug/` for
+   each URL tried, so the fix comes from what Instagram really rendered
+   rather than a guess. The summary is also printed straight to the console
+   (and is small and free of personal content, unlike the HTML/screenshot),
+   so it is usually enough on its own — paste it into a bug report or chat
+   without needing to attach a file. Compare it against
    `instagram/selectors.py`, then `python main.py dump-selectors` and fix the
    group that no longer matches. `docs/CONFIGURATION.md` documents the format.
 
@@ -186,9 +190,21 @@ in practice. Rather than guess at a fix blind, a `--debug` mode was added
 (`python main.py scan --debug`) that saves the actual rendered HTML and a
 screenshot for every URL tried, so the next fix can be based on what
 Instagram really sent rather than assumption. It is opt-in and local-only —
-see the README's "Diagnosing a mismatch" section. The actual selector fix,
-once the dump is inspected, belongs in `selectors.json` or
-`instagram/selectors.py`, not in this report.
+see the README's "Diagnosing a mismatch" section.
+
+The HTML/screenshot dump turned out to have a practical problem of its own:
+a real Instagram page's HTML is large and can carry personal content
+(captions, usernames), which makes it awkward to get from wherever the tool
+runs into a report or a chat message — exactly the channel this gap needs to
+be closed through. A short text summary was added alongside the two dumps:
+the resolved URL, the page title, a histogram of on-page link *route
+prefixes* only (`/p/` -> 12, never the full permalink or who posted it), and
+the live match count for every candidate in the selector groups the likes
+surface depends on. It is logged at warning level — shown on the console by default, no
+`--log-level` flag needed — as well as saved to `data/debug/*.txt`, so it can
+be copied straight out of the terminal. The actual selector fix, once the summary or the full dump is
+inspected, belongs in `selectors.json` or `instagram/selectors.py`, not in
+this report.
 
 ---
 
@@ -284,8 +300,12 @@ at it.
 | Local-first | SQLite and a log file on disk, both gitignored. |
 | Don't log secrets | A redaction filter on the handlers scrubs session ids, CSRF tokens, cookies, bearer tokens, JWT-shaped strings and long hex blobs. Tested, including exception text. URLs are logged without query strings. |
 
-Diagnostic screenshots would contain personal content, so they are never taken
-automatically.
+Diagnostic screenshots and HTML dumps would contain personal content, so they
+are never taken automatically — only on explicit `--debug`. The one piece of
+diagnostic output that *is* logged unconditionally when a dump happens (the
+`.txt` summary) is deliberately built to carry none: link counts are grouped
+by route prefix only, never the full href, so it cannot contain a post code,
+a username or a caption.
 
 ---
 

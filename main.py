@@ -75,10 +75,10 @@ def _common_options() -> argparse.ArgumentParser:
         action="store_true",
         default=argparse.SUPPRESS,
         help=(
-            "when a page doesn't match any known selector, save its HTML and "
-            "a screenshot under data/debug/ for inspection (local only, "
-            "never uploaded; off by default because dumps contain personal "
-            "content)"
+            "when a page doesn't match any known selector, save its HTML, a "
+            "screenshot and a short match-count summary under data/debug/ "
+            "for inspection (local only, never uploaded; off by default "
+            "because the HTML/screenshot contain personal content)"
         ),
     )
     common.add_argument(
