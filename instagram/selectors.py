@@ -119,6 +119,45 @@ LIKES_PATHS = (
 #: Permalink shapes we know how to turn into a stable identifier.
 POST_PATH_PREFIXES = ("/p/", "/reel/", "/reels/", "/tv/")
 
+#: Structural shapes counted when a page matches nothing we know.
+#:
+#: These are *diagnostics*, never used to act on a page. Each one is counted
+#: and the count is reported, which is enough to tell "the grid is anchors"
+#: from "the grid is divs wrapping images" from "the page is empty" without
+#: reading a single character of the user's content.
+STRUCTURE_PROBES: tuple[str, ...] = (
+    "main",
+    "main a",
+    "main a[href]",
+    'a[href*="/p/"]',
+    'main a[href*="/p/"]',
+    'a[href*="/reel/"]',
+    'a[href*="/tv/"]',
+    "main img",
+    'img[src*="cdninstagram"]',
+    "main [role]",
+    'main [role="button"]',
+    'main div[role="button"]',
+    'main [role="link"]',
+    'main [role="listitem"]',
+    'main [role="grid"]',
+    'main [role="tablist"]',
+    "main button",
+    'main [tabindex="0"]',
+    'main [style*="aspect-ratio"]',
+    "main video",
+    "main canvas",
+    'main input[type="checkbox"]',
+    'main [role="checkbox"]',
+    "main a:has(img)",
+    'main a[role="link"]:has(img)',
+    'main div[role="button"]:has(img)',
+    "main div:has(> img)",
+    "main [data-testid]",
+    'div[role="dialog"]',
+    "iframe",
+)
+
 
 # ---------------------------------------------------------------------------
 # Selector groups
@@ -187,6 +226,13 @@ DEFAULT_SELECTORS: dict[str, tuple[Selector, ...]] = {
         css('a[href*="/reel/"]', "reel permalink in the likes grid"),
         css('a[href*="/tv/"]'),
         css('[data-testid="liked-item"]', "mock/integration test hook"),
+        # Your Activity is a multi-select surface, so its tiles may be
+        # clickable containers rather than permalink anchors — tapping one
+        # toggles selection instead of navigating. These match that shape.
+        # They are last on purpose: a permalink identifies a post exactly,
+        # whereas a tile only yields a thumbnail-derived identifier.
+        css('main a[role="link"]:has(img)', "tile as a link wrapping a thumbnail"),
+        css('main div[role="button"]:has(img)', "tile as a button wrapping a thumbnail"),
     ),
     "likes_empty_state": (
         text("No likes yet"),

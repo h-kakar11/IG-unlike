@@ -72,10 +72,18 @@ def test_current_url_is_safe_when_there_is_no_browser(tmp_path):
 # DOM resolution
 # ---------------------------------------------------------------------------
 class FakeLocator:
-    def __init__(self, count: int = 1, visible: bool = True, label: str = ""):
+    def __init__(
+        self,
+        count: int = 1,
+        visible: bool = True,
+        label: str = "",
+        visible_at: set[int] | None = None,
+    ):
         self._count = count
         self._visible = visible
         self.label = label
+        #: Per-index visibility, for grids whose first node is a placeholder.
+        self._visible_at = visible_at
 
     def count(self) -> int:
         return self._count
@@ -85,10 +93,16 @@ class FakeLocator:
 
     @property
     def first(self) -> "FakeLocator":
-        return self
+        return self.nth(0)
 
-    def nth(self, _index: int) -> "FakeLocator":
-        return self
+    def nth(self, index: int) -> "FakeLocator":
+        if self._visible_at is None:
+            return self
+        return FakeLocator(
+            count=self._count,
+            visible=index in self._visible_at,
+            label=f"{self.label}[{index}]",
+        )
 
 
 class FakeScope:
@@ -140,6 +154,35 @@ def test_a_hidden_early_match_does_not_mask_a_visible_later_one():
     )
     _, matched = dom.find_first(scope, [Selector("css", "a"), Selector("css", "b")])
     assert matched.value == "b"
+
+
+def test_a_hidden_first_match_does_not_discard_the_rest_of_the_grid():
+    """The failure this exists for: a full grid reading as "nothing here".
+
+    Instagram renders placeholder and prefetch nodes among the real ones. If
+    only the first match were tested for visibility, thirty-six thumbnails
+    behind one hidden node would count as no match at all.
+    """
+    scope = FakeScope({"css:a": FakeLocator(count=36, visible_at={1, 2, 3})})
+
+    match = dom.find_first(scope, [Selector("css", "a")])
+
+    assert match is not None, "a visible thumbnail behind a hidden one still counts"
+    assert match[1].value == "a"
+
+
+def test_visibility_sampling_is_bounded():
+    """This runs in a polling loop, so it must not walk a huge grid."""
+    probed: list[int] = []
+
+    class CountingLocator(FakeLocator):
+        def nth(self, index: int) -> "FakeLocator":
+            probed.append(index)
+            return FakeLocator(count=self._count, visible=False)
+
+    scope = FakeScope({"css:a": CountingLocator(count=5000, visible=False)})
+    assert dom.find_first(scope, [Selector("css", "a")]) is None
+    assert len(probed) == dom.VISIBILITY_SAMPLE
 
 
 def test_a_hidden_match_is_still_usable_when_visibility_is_not_required():
@@ -221,6 +264,15 @@ class _RecordingSession:
     def link_prefix_histogram(self):
         return self.histogram
 
+    def structure_report(self, probes):
+        return {
+            "main_present": True,
+            "scope_elements": 42,
+            "tags": {"div": 30, "img": 7, "a": 5},
+            "roles": {"button": 4, "link": 5},
+            "probes": {selector: 0 for selector in probes},
+        }
+
 
 def test_diagnostics_are_not_dumped_unless_debug_is_enabled(tmp_path):
     """The default: a mismatch fails quietly, with no personal data written."""
@@ -289,6 +341,36 @@ def test_summary_degrades_gracefully_without_a_page(tmp_path):
     content = list(debug_dir.glob("*.txt"))[0].read_text(encoding="utf-8")
     assert "unavailable" in content
     assert len(session.html_calls) == 1 and len(session.screenshot_calls) == 1
+
+
+def test_the_safe_summary_is_reported_even_without_debug(tmp_path, caplog):
+    """A user who hits a mismatch must not be told to run the whole thing again.
+
+    The counts-only summary carries nothing personal, so it is always logged;
+    only the HTML and screenshot wait for --debug.
+    """
+    session = _RecordingSession()
+    config = fast_config(tmp_path, debug=False, debug_dir=tmp_path / "dbg")
+
+    with caplog.at_level("WARNING", logger="unliker.navigation"):
+        summary = Navigator(session, config).report_diagnostics("likes")
+
+    assert "Page structure" in summary
+    assert summary in caplog.text, "the summary should reach the console"
+    assert session.html_calls == [] and session.screenshot_calls == []
+    assert not (tmp_path / "dbg").exists(), "no files without --debug"
+
+
+def test_the_summary_describes_page_shape_without_content(tmp_path):
+    session = _RecordingSession()
+    config = fast_config(tmp_path, debug=False)
+
+    summary = Navigator(session, config).report_diagnostics("likes")
+
+    assert "<main> present: True" in summary
+    assert "div=30" in summary and "img=7" in summary, "tag histogram"
+    assert "Probe matches" in summary
+    assert 'main div[role="button"]:has(img)' in summary
 
 
 def test_summary_omits_link_prefixes_when_none_are_found(tmp_path):

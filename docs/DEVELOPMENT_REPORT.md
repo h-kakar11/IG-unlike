@@ -35,7 +35,7 @@ with a procedure for checking each one against the real site.
 | 9 Safeguards | Done | `cli/prompts.py` — dry-run default, typed `yes` |
 | 10 Error handling | Done | `core/errors.py` — 18 classes, each classified for retry |
 | 11 Logging | Done | `core/logging_setup.py` — rotating file log, mandatory redaction |
-| 12 Testing | Done | 294 tests; mock Instagram site for integration |
+| 12 Testing | Done | 298 tests; mock Instagram site for integration |
 | 13 Configuration | Done | `config.py` — four sources, validated, credential-rejecting |
 | 14 Recovery | Done | Session-aware recovery of abandoned claims |
 | 15 Statistics | Done | `core/progress.py` — observed throughput, ETA |
@@ -48,7 +48,7 @@ infrastructure. 20 selector groups covering 85 candidate strategies.
 ## What was tested, and how
 
 ```
-294 tests:  253 logic-only (no browser)  +  41 browser-driven
+298 tests:  255 logic-only (no browser)  +  43 browser-driven
 ```
 
 | File | Tests | Covers |
@@ -61,9 +61,9 @@ infrastructure. 20 selector groups covering 85 candidate strategies.
 | `test_errors.py` | 24 | Classification of Playwright and unknown errors |
 | `test_rate_controller.py` | 21 | Delays, backoff, caps, jitter, circuit breakers |
 | `test_progress.py` | 19 | Counters, rolling window, ETA, formatting |
-| `test_browser_and_dom.py` | 19 | Launch diagnosis, candidate resolution, `--debug` summary |
+| `test_browser_and_dom.py` | 21 | Launch diagnosis, candidate resolution, diagnostic summary |
 | `test_logging.py` | 18 | Redaction, rotation, exception scrubbing |
-| `test_integration_scan.py` | 16 | **Browser**: login detection, navigation, scanning |
+| `test_integration_scan.py` | 18 | **Browser**: login detection, navigation, scanning, probes |
 | `test_integration_unlike.py` | 14 | **Browser**: unliking, verification, recovery |
 | `test_integration_cli.py` | 11 | **Browser**: the CLI end to end |
 
@@ -192,6 +192,23 @@ screenshot for every URL tried, so the next fix can be based on what
 Instagram really sent rather than assumption. It is opt-in and local-only —
 see the README's "Diagnosing a mismatch" section.
 
+A second live run confirmed the diagnosis was still out of reach: all three
+known paths loaded while logged in, and none matched. It also exposed a
+design fault in the tool's own response — it *told the user to run it again*
+with `--debug`, spending a whole run to produce nothing. The counts-only
+part of the diagnostic is now emitted unconditionally, at the moment of
+failure, and the flag controls only the files that carry real content. A
+structural probe sweep was added alongside it: match counts for ~30 candidate
+shapes plus tag and role histograms within `<main>`, which distinguish a grid
+of permalink anchors from a grid of clickable containers from a genuinely
+empty page — without reading one character of the user's content. Two
+container-shaped candidates (`main a[role="link"]:has(img)`,
+`main div[role="button"]:has(img)`) were added to `likes_grid_item` on the
+theory that Your Activity, being a multi-select surface, may not use plain
+permalink anchors; the scanner now resolves a container to its nested
+permalink so a tile and the anchor inside it can never be counted as two
+different posts.
+
 The HTML/screenshot dump turned out to have a practical problem of its own:
 a real Instagram page's HTML is large and can carry personal content
 (captions, usernames), which makes it awkward to get from wherever the tool
@@ -244,6 +261,17 @@ sync API is bound to its creating thread, and every live run died with
 `greenlet.error: cannot switch to a different thread`. Inverted: the worker owns
 the main thread, the display and the keyboard reader are the background threads.
 This is documented in `cli/runner.py` because it is easy to undo by accident.
+
+**One hidden node discarded a whole grid.** `find_first` tested only
+`locator.first` for visibility. A candidate matching thirty-six thumbnails
+whose first node happened to be a placeholder — which is how a single-page
+app renders, with prefetch and virtualisation nodes among the real ones —
+was therefore treated as no match at all, and the page read as
+unrecognisable while plainly full of content. This is a strong candidate for
+the live `UIChangedError`, since the shipped `a[href*="/p/"]` would have
+matched the real grid all along. Several matches per candidate are now
+sampled, bounded because the check runs in a polling loop.
+(`test_a_hidden_first_match_does_not_discard_the_rest_of_the_grid`)
 
 **Confirmation prompts could not be substituted.** `input_fn: Callable = input`
 captured the builtin at import time, so the safeguards were untestable and
