@@ -262,6 +262,17 @@ sync API is bound to its creating thread, and every live run died with
 the main thread, the display and the keyboard reader are the background threads.
 This is documented in `cli/runner.py` because it is easy to undo by accident.
 
+**One hidden node discarded a whole grid.** `find_first` tested only
+`locator.first` for visibility. A candidate matching thirty-six thumbnails
+whose first node happened to be a placeholder — which is how a single-page
+app renders, with prefetch and virtualisation nodes among the real ones —
+was therefore treated as no match at all, and the page read as
+unrecognisable while plainly full of content. This is a strong candidate for
+the live `UIChangedError`, since the shipped `a[href*="/p/"]` would have
+matched the real grid all along. Several matches per candidate are now
+sampled, bounded because the check runs in a polling loop.
+(`test_a_hidden_first_match_does_not_discard_the_rest_of_the_grid`)
+
 **Confirmation prompts could not be substituted.** `input_fn: Callable = input`
 captured the builtin at import time, so the safeguards were untestable and
 could not be redirected. Changed to late binding via `builtins.input`.

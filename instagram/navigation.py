@@ -378,6 +378,15 @@ class Navigator:
             if self.on_likes_page():
                 log.info("Liked content surface is open")
                 return url
+
+            # Some surfaces render their grid only once something scrolls —
+            # an intersection observer never fires on a page nobody touches.
+            # One nudge is cheap; concluding "unreadable" wrongly is not.
+            self._nudge()
+            if self.on_likes_page(timeout=5.0):
+                log.info("Liked content appeared after a scroll nudge")
+                return url
+
             log.warning(
                 "%s loaded but no liked content or empty state was recognised",
                 safe_url(url),
@@ -400,6 +409,19 @@ class Navigator:
             + hint
             + (f" Last error: {last_error}" if last_error else "")
         )
+
+    def _nudge(self) -> None:
+        """Scroll once to wake a lazily-rendered grid. Never fails the caller.
+
+        Read-only: scrolling changes nothing on the account, and it is the
+        one interaction that reliably triggers the observers a single-page
+        app uses to decide a list is worth rendering.
+        """
+        try:
+            self.page.mouse.wheel(0, 1200)
+            self.page.evaluate("() => window.scrollBy(0, 1200)")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Scroll nudge failed: %s", exc)
 
     def on_likes_page(self, *, timeout: float | None = None) -> bool:
         """True once either liked items or the empty state have rendered."""

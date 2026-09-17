@@ -72,10 +72,18 @@ def test_current_url_is_safe_when_there_is_no_browser(tmp_path):
 # DOM resolution
 # ---------------------------------------------------------------------------
 class FakeLocator:
-    def __init__(self, count: int = 1, visible: bool = True, label: str = ""):
+    def __init__(
+        self,
+        count: int = 1,
+        visible: bool = True,
+        label: str = "",
+        visible_at: set[int] | None = None,
+    ):
         self._count = count
         self._visible = visible
         self.label = label
+        #: Per-index visibility, for grids whose first node is a placeholder.
+        self._visible_at = visible_at
 
     def count(self) -> int:
         return self._count
@@ -85,10 +93,16 @@ class FakeLocator:
 
     @property
     def first(self) -> "FakeLocator":
-        return self
+        return self.nth(0)
 
-    def nth(self, _index: int) -> "FakeLocator":
-        return self
+    def nth(self, index: int) -> "FakeLocator":
+        if self._visible_at is None:
+            return self
+        return FakeLocator(
+            count=self._count,
+            visible=index in self._visible_at,
+            label=f"{self.label}[{index}]",
+        )
 
 
 class FakeScope:
@@ -140,6 +154,35 @@ def test_a_hidden_early_match_does_not_mask_a_visible_later_one():
     )
     _, matched = dom.find_first(scope, [Selector("css", "a"), Selector("css", "b")])
     assert matched.value == "b"
+
+
+def test_a_hidden_first_match_does_not_discard_the_rest_of_the_grid():
+    """The failure this exists for: a full grid reading as "nothing here".
+
+    Instagram renders placeholder and prefetch nodes among the real ones. If
+    only the first match were tested for visibility, thirty-six thumbnails
+    behind one hidden node would count as no match at all.
+    """
+    scope = FakeScope({"css:a": FakeLocator(count=36, visible_at={1, 2, 3})})
+
+    match = dom.find_first(scope, [Selector("css", "a")])
+
+    assert match is not None, "a visible thumbnail behind a hidden one still counts"
+    assert match[1].value == "a"
+
+
+def test_visibility_sampling_is_bounded():
+    """This runs in a polling loop, so it must not walk a huge grid."""
+    probed: list[int] = []
+
+    class CountingLocator(FakeLocator):
+        def nth(self, index: int) -> "FakeLocator":
+            probed.append(index)
+            return FakeLocator(count=self._count, visible=False)
+
+    scope = FakeScope({"css:a": CountingLocator(count=5000, visible=False)})
+    assert dom.find_first(scope, [Selector("css", "a")]) is None
+    assert len(probed) == dom.VISIBILITY_SAMPLE
 
 
 def test_a_hidden_match_is_still_usable_when_visibility_is_not_required():
