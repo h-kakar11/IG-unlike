@@ -233,6 +233,90 @@ def test_debug_dumps_real_page_html_when_selectors_dont_match(make_config, mock_
     assert "MOCK0000" not in summary, "the summary must never leak a specific post identifier"
 
 
+def test_a_container_tile_resolves_to_its_nested_permalink(session_for, mock_instagram):
+    """Your Activity tiles may be containers rather than the link itself.
+
+    A container must still identify the post it wraps, and must not be
+    counted as a second, different item alongside that post's own anchor.
+    """
+    navigator, scanner, _ = session_for(mock_instagram)
+    navigator.ensure_authenticated(prompt=lambda _: None)
+    navigator.navigate_to_likes()
+
+    # A container with no href of its own, wrapping real permalinks.
+    container_only = SelectorRegistry()
+    container_only.apply_overrides(
+        {"likes_grid_item": {"replace": [{"kind": "css", "value": "#grid"}]}}
+    )
+    scanner.selectors = container_only
+    items = scanner.scan_visible()
+
+    assert len(items) == 1, "the container is one element"
+    assert items[0].identifier.startswith("p/MOCK"), (
+        "it should resolve to the post it wraps, not a thumbnail hash"
+    )
+
+    # And alongside the anchors it wraps, it must not become a 13th item.
+    both = SelectorRegistry()
+    both.apply_overrides(
+        {
+            "likes_grid_item": {
+                "replace": [
+                    {"kind": "css", "value": 'a[href*="/p/"]'},
+                    {"kind": "css", "value": "#grid"},
+                ]
+            }
+        }
+    )
+    scanner.selectors = both
+    assert len(scanner.scan_visible()) == 12, "no duplicate from the container"
+
+
+def test_structure_probes_reveal_the_real_markup_when_selectors_miss(
+    make_config, mock_instagram, caplog
+):
+    """The point of the probe sweep: when the configured selectors are wrong,
+    the counts still describe what is actually on the page, so the correct
+    selector can be identified without reading any of the user's content.
+
+    The report has to happen *while the failing page is still open* — one per
+    URL tried — which is why navigate_to_likes emits it inside its own loop
+    rather than leaving it to the caller.
+    """
+    config = make_config(mock_instagram.base_url, debug=False)
+    broken = SelectorRegistry()
+    broken.apply_overrides(
+        {
+            "likes_grid_item": {"replace": [{"kind": "css", "value": "a.nonexistent-xyz"}]},
+            "likes_empty_state": {"replace": [{"kind": "css", "value": "div.nonexistent-xyz"}]},
+        }
+    )
+    session = BrowserSession(config).start()
+    try:
+        navigator = Navigator(session, config, broken)
+        navigator.ensure_authenticated(prompt=lambda _: None)
+
+        with caplog.at_level("WARNING", logger="unliker.navigation"):
+            with pytest.raises(UIChangedError):
+                navigator.navigate_to_likes()
+    finally:
+        session.stop()
+
+    reported = caplog.text
+    # The broken registry sees nothing...
+    assert "a.nonexistent-xyz" in reported
+    # ...but the probes still counted the permalinks the mock really renders
+    # on the likes page, which is the first URL tried.
+    permalink_counts = [
+        int(line.rsplit("->", 1)[1].strip())
+        for line in reported.splitlines()
+        if line.strip().startswith('a[href*="/p/"]') and "->" in line
+    ]
+    assert permalink_counts, "the probe sweep should have run"
+    assert max(permalink_counts) > 0, "the real grid anchors should have been counted"
+    assert "MOCK0000" not in reported, "counts only — never an identifier"
+
+
 def test_no_dump_is_left_behind_without_debug(make_config, mock_instagram):
     """The opt-in default: a failure is diagnosable only when asked for."""
     config = make_config(mock_instagram.base_url, debug=False)

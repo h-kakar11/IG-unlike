@@ -51,6 +51,13 @@ def _count(locator: Any) -> int:
         raise classify(exc) from exc
 
 
+#: How many matches of one candidate to test for visibility before moving on.
+#: Instagram renders placeholder, prefetch and virtualisation nodes among the
+#: real ones, so the *first* match being hidden says nothing about the rest.
+#: Bounded because this runs in a polling loop.
+VISIBILITY_SAMPLE = 8
+
+
 def find_first(
     scope: Any,
     selectors: Sequence[Selector],
@@ -62,6 +69,11 @@ def find_first(
     Two passes: visible matches first across all candidates, then — if
     ``require_visible`` is False — any match at all. Without the two passes a
     hidden element from an early candidate would mask a usable later one.
+
+    Within a candidate, several matches are sampled rather than only the
+    first. A grid of thirty-six thumbnails whose first node happens to be a
+    hidden placeholder is still a grid, and treating it as "no match" is how
+    a page that is plainly full of content reads as unrecognisable.
     """
     attached: tuple[Any, Selector] | None = None
     for selector in selectors:
@@ -73,14 +85,17 @@ def find_first(
         count = _count(locator)
         if count == 0:
             continue
-        candidate = locator.first
-        if attached is None:
-            attached = (candidate, selector)
-        try:
-            if candidate.is_visible():
-                return candidate, selector
-        except Exception:  # noqa: BLE001 - treat an unreadable node as a miss
-            continue
+        if attached is None and not require_visible:
+            # Only the relaxed pass ever uses this, and resolving it costs a
+            # round trip on a path that polls.
+            attached = (locator.first, selector)
+        for index in range(min(count, VISIBILITY_SAMPLE)):
+            element = locator.nth(index)
+            try:
+                if element.is_visible():
+                    return element, selector
+            except Exception:  # noqa: BLE001 - an unreadable node is a miss
+                continue
     if not require_visible and attached is not None:
         return attached
     return None

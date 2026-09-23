@@ -279,29 +279,43 @@ python main.py scan                # picks the overrides up automatically
 If nothing matches, the tool stops with a message naming every strategy it
 tried, rather than clicking on a page it cannot read.
 
-### Diagnosing a mismatch: `--debug`
+### Diagnosing a mismatch
 
-When a page doesn't match any known selector, add `--debug` to see exactly
-what Instagram rendered instead of guessing:
+When a page matches nothing the tool knows, it prints a diagnostic summary
+straight to your terminal — no flag needed, and no second run required:
+
+```
+--- Diagnostic summary: /your_activity/interactions/likes/ ---
+URL: https://www.instagram.com/your_activity/interactions/likes/
+Title: 'Likes'
+Link prefixes on this page (route only, no post/user data):
+  /p/                  36
+Selector group match counts (0 means every candidate failed):
+  likes_grid_item:
+    css='a[href*="/p/"]'                        -> 0
+Page structure (element counts only, no content):
+  <main> present: True   elements within it: 812
+  Tags: div=604, img=36, a=12, span=98
+  Probe matches (-1 = selector unsupported here):
+    main div[role="button"]:has(img)            -> 36
+```
+
+That is counts only — no captions, usernames or post codes — so it is safe
+to paste into a bug report. It is normally enough to identify the selector
+that needs fixing: in the example above, the tiles are clickable `div`s
+rather than the permalink anchors the tool expected.
+
+For the full picture, add `--debug` to also save the real page HTML and a
+screenshot under `data/debug/`:
 
 ```bash
 python main.py scan --debug
 ```
 
-If nothing matches, this saves the real page HTML, a screenshot and a short
-text summary under `data/debug/` — one set per URL the tool tried. The
-summary is also printed straight to your terminal, since the HTML and
-screenshot are large and can contain personal content (captions, usernames),
-which makes them awkward to paste anywhere. It has no such content — only the
-resolved URL, the page title, a count of on-page links grouped by route
-(`/p/` -> 12, never which posts or whose account) and, for the selector
-groups the Likes page depends on, how many elements each candidate matched
-right now. That is usually enough on its own to see which candidate needs
-fixing; open the `.html` or `.png` file for the full picture if it isn't.
-Compare either against the candidates in `instagram/selectors.py` or
-`selectors.json`. These dumps are local only, gitignored, and never uploaded
-anywhere; `--debug` is off by default because the HTML/screenshot dumps
-contain personal content.
+Those two stay behind the flag because they *do* contain personal content.
+Everything written is local and gitignored, and nothing is ever uploaded.
+Once you know what to match, fix the group in `selectors.json` — see
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 

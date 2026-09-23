@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from core.errors import BrowserCrashedError, FatalError, classify
 from core.logging_setup import get_logger, safe_url
@@ -256,6 +256,49 @@ class BrowserSession:
             return []
         pairs = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
         return pairs[:limit]
+
+    def structure_report(self, probes: Sequence[str]) -> dict[str, Any]:
+        """Describe the page's *shape* without reading any of its content.
+
+        Returns element counts only — a tag histogram, a role histogram and a
+        match count per probe selector. Counts cannot carry a caption, a
+        username or a post code, which is what makes this safe to print and
+        paste when a page fails to match. Never fails the caller.
+        """
+        try:
+            return self.page.evaluate(
+                """(probes) => {
+                    const scope = document.querySelector('main') || document.body;
+                    const tags = {};
+                    const roles = {};
+                    const all = scope ? scope.querySelectorAll('*') : [];
+                    for (const el of all) {
+                        const tag = el.tagName.toLowerCase();
+                        tags[tag] = (tags[tag] || 0) + 1;
+                        const role = el.getAttribute('role');
+                        if (role) roles[role] = (roles[role] || 0) + 1;
+                    }
+                    const counts = {};
+                    for (const selector of probes) {
+                        try {
+                            counts[selector] = document.querySelectorAll(selector).length;
+                        } catch (e) {
+                            counts[selector] = -1;  // unsupported by this browser
+                        }
+                    }
+                    return {
+                        main_present: !!document.querySelector('main'),
+                        scope_elements: all.length,
+                        tags: tags,
+                        roles: roles,
+                        probes: counts,
+                    };
+                }""",
+                list(probes),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Structure report failed: %s", exc)
+            return {}
 
     def dump_html(self, path: str | Path) -> Path | None:
         """Save the current page's rendered HTML. Never fails the caller.
